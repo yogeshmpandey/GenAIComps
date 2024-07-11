@@ -404,11 +404,10 @@ class FaqGenGateway(Gateway):
         stream_opt = data.get("stream", True)
         chat_request = ChatCompletionRequest.parse_obj(data)
         prompt_template = """
-        Create a concise FAQs (frequently asked questions and answers) in table for following text:
+        Create a concise FAQs (frequently asked questions and answers) for following text below, Do not use any prefix or suffix to the FAQ. Do not add anything extra.
+        TEXT:
         
         {text}
-        
-        Do not use any prefix or suffix to the FAQ. Do not add anything extra.
         """
         prompt = prompt_template.format(text=chat_request.messages)
         parameters = LLMParams(
@@ -419,7 +418,7 @@ class FaqGenGateway(Gateway):
             repetition_penalty=chat_request.presence_penalty if chat_request.presence_penalty else 1.03,
             streaming=stream_opt,
         )
-        result_dict = await self.megaservice.schedule(initial_inputs={"query": prompt}, llm_parameters=parameters)
+        result_dict = await self.megaservice.schedule(initial_inputs={"text": prompt}, llm_parameters=parameters)
         for node, response in result_dict.items():
             # Here it suppose the last microservice in the megaservice is LLM.
             if (
@@ -439,4 +438,4 @@ class FaqGenGateway(Gateway):
                 finish_reason="stop",
             )
         )
-        return ChatCompletionResponse(model="faqgen", choices=choices, usage=usage)
+        return ChatCompletionResponse(model="chatqna", choices=choices, usage=usage)
