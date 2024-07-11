@@ -405,9 +405,10 @@ class FaqGenGateway(Gateway):
         chat_request = ChatCompletionRequest.parse_obj(data)
         prompt_template = """
         Create a concise FAQs (frequently asked questions and answers) in table for following text:
-        TEXT: {text}
-        Do not use any prefix or suffix to the FAQ.
         
+        {text}
+        
+        Do not use any prefix or suffix to the FAQ. Do not add anything extra.
         """
         prompt = prompt_template.format(text=chat_request.messages)
         parameters = LLMParams(
