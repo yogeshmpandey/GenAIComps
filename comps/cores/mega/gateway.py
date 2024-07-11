@@ -403,7 +403,13 @@ class FaqGenGateway(Gateway):
         data = await request.json()
         stream_opt = data.get("stream", True)
         chat_request = ChatCompletionRequest.parse_obj(data)
-        prompt = self._handle_message(chat_request.messages)
+        prompt_template = """
+        Create a concise FAQs (frequently asked questions and answers) in table for following text:
+        TEXT: {text}
+        Do not use any prefix or suffix to the FAQ.
+        
+        """
+        prompt = prompt_template.format(text=chat_request.messages)
         parameters = LLMParams(
             max_new_tokens=chat_request.max_tokens if chat_request.max_tokens else 1024,
             top_k=chat_request.top_k if chat_request.top_k else 10,
