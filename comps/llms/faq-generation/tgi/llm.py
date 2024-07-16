@@ -65,7 +65,6 @@ def llm_generate(input: LLMParamsDoc):
             _serializer = WellKnownLCSerializer()
             async for chunk in llm_chain.astream_log(docs):
                 data = _serializer.dumps({"ops": chunk.ops}).decode("utf-8")
-                print(f"[faqgen - text_faqs] data: {data}")
                 yield f"data: {data}\n\n"
             yield "data: [DONE]\n\n"
 
