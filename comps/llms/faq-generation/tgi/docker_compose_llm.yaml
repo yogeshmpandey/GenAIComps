@@ -19,7 +19,7 @@ services:
     image: opea/llm-faqgen-tgi:latest
     container_name: llm-faqgen-server
     ports:
-      - "9330:9000"
+      - "9000:9000"
     ipc: host
     environment:
       no_proxy: ${no_proxy}
