@@ -5,9 +5,10 @@ import os
 import pathlib
 import sys
 from datetime import datetime
-from typing import Union
+from typing import List, Optional, Union
 
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 cur_path = pathlib.Path(__file__).parent.resolve()
 comps_path = os.path.join(cur_path, "../../../")
@@ -40,7 +41,10 @@ logger.info(f"args: {args}")
 agent_inst = instantiate_agent(args, args.strategy, with_memory=args.with_memory)
 
 
-class AgentCompletionRequest(LLMParamsDoc):
+class AgentCompletionRequest(ChatCompletionRequest):
+    # rewrite, specify tools in this turn of conversation
+    tool_choice: Optional[List[str]] = None
+    # for short/long term in-memory
     thread_id: str = "0"
     user_id: str = "0"
 
@@ -52,42 +56,85 @@ class AgentCompletionRequest(LLMParamsDoc):
     host="0.0.0.0",
     port=args.port,
 )
-async def llm_generate(input: Union[LLMParamsDoc, ChatCompletionRequest, AgentCompletionRequest]):
+async def llm_generate(input: AgentCompletionRequest):
     if logflag:
         logger.info(input)
 
-    input.stream = args.stream
-    config = {"recursion_limit": args.recursion_limit}
+    # don't use global stream setting
+    # input.stream = args.stream
+    config = {"recursion_limit": args.recursion_limit, "tool_choice": input.tool_choice}
 
     if args.with_memory:
-        if isinstance(input, AgentCompletionRequest):
-            config["configurable"] = {"thread_id": input.thread_id}
-        else:
-            config["configurable"] = {"thread_id": "0"}
+        config["configurable"] = {"thread_id": input.thread_id}
 
     if logflag:
         logger.info(type(agent_inst))
 
-    if isinstance(input, LLMParamsDoc):
-        # use query as input
-        input_query = input.query
+    # openai compatible input
+    if isinstance(input.messages, str):
+        messages = input.messages
     else:
-        # openai compatible input
-        if isinstance(input.messages, str):
-            input_query = input.messages
-        else:
-            input_query = input.messages[-1]["content"]
+        # TODO: need handle multi-turn messages
+        messages = input.messages[-1]["content"]
 
     # 2. prepare the input for the agent
     if input.stream:
         logger.info("-----------STREAMING-------------")
-        return StreamingResponse(agent_inst.stream_generator(input_query, config), media_type="text/event-stream")
+        return StreamingResponse(
+            agent_inst.stream_generator(messages, config),
+            media_type="text/event-stream",
+        )
 
     else:
         logger.info("-----------NOT STREAMING-------------")
-        response = await agent_inst.non_streaming_run(input_query, config)
+        response = await agent_inst.non_streaming_run(messages, config)
         logger.info("-----------Response-------------")
-        return GeneratedDoc(text=response, prompt=input_query)
+        return GeneratedDoc(text=response, prompt=messages)
+
+
+class RedisConfig(BaseModel):
+    redis_uri: Optional[str] = "redis://127.0.0.1:6379"
+
+
+class AgentConfig(BaseModel):
+    stream: Optional[bool] = False
+    agent_name: Optional[str] = "OPEA_Default_Agent"
+    strategy: Optional[str] = "react_llama"
+    role_description: Optional[str] = "LLM enhanced agent"
+    tools: Optional[str] = None
+    recursion_limit: Optional[int] = 5
+
+    model: Optional[str] = "meta-llama/Meta-Llama-3-8B-Instruct"
+    llm_engine: Optional[str] = None
+    llm_endpoint_url: Optional[str] = None
+    max_new_tokens: Optional[int] = 1024
+    top_k: Optional[int] = 10
+    top_p: Optional[float] = 0.95
+    temperature: Optional[float] = 0.01
+    repetition_penalty: Optional[float] = 1.03
+    return_full_text: Optional[bool] = False
+    custom_prompt: Optional[str] = None
+
+    # short/long term memory
+    with_memory: Optional[bool] = False
+    # persistence
+    with_store: Optional[bool] = False
+    store_config: Optional[RedisConfig] = None
+
+    timeout: Optional[int] = 60
+
+    # sql agent config
+    db_path: Optional[str] = None
+    db_name: Optional[str] = None
+    use_hints: Optional[bool] = False
+    hints_file: Optional[str] = None
+
+    # specify tools in this turn of conversation
+    tool_choice: Optional[List[str]] = None
+
+
+class CreateAssistant(CreateAssistantsRequest):
+    agent_config: AgentConfig
 
 
 @register_microservice(
@@ -96,8 +143,11 @@ async def llm_generate(input: Union[LLMParamsDoc, ChatCompletionRequest, AgentCo
     host="0.0.0.0",
     port=args.port,
 )
-def create_assistants(input: CreateAssistantsRequest):
+def create_assistants(input: CreateAssistant):
     # 1. initialize the agent
+    agent_inst = instantiate_agent(
+        input.agent_config, input.agent_config.strategy, with_memory=input.agent_config.with_memory
+    )
     agent_id = agent_inst.id
     created_at = int(datetime.now().timestamp())
     with assistants_global_kv as g_assistants:
